@@ -48,11 +48,11 @@ def get_ans(node):
 
 def get_neg(node):
     neg = []
-    neg.append(node.ans)
+    neg.append(vocab.index(node.ans))
     random.shuffle(node.neg)
     neg_list = node.neg
     for i in xrange(100):
-      neg.append(neg_list[i])
+      neg.append(vocab.index(neg_list[i]))
     return neg
 
 vocab, rel_list, ans_list, tree_dict = cPickle.load(open('data/hist_split','r'))
@@ -67,12 +67,13 @@ for key in tree_dict:
     for tree in tree_dict[key]:
         node_dict[key].append(root(tree))
 with tf.device("/cpu:0"):
-  w2v = tf.Variable(tf.random_normal([len(vocab),100]))
+  w2v = tf.Variable(tf.random_normal([len(vocab),100,1]))
 word2vec = (td.InputTransform(vocab.index) >>
            td.Optional(td.Scalar('int32')) >>
-           td.Function(lambda x : tf.nn.embedding_lookup(w2v,x)) >>
+           td.Function(lambda x : tf.nn.embedding_lookup(w2v,x)) 
            #td.Function(td.Embedding(len(vocab),100,name="word_embed"))>>
-           td.Function(lambda x: tf.reshape(x,[-1,100,1])))
+           #td.Function(lambda x: tf.reshape(x,[-1,100,1]))
+           )
 
 Wv = td.FromTensor(tf.Variable(tf.random_normal([100,100])))
 Wv2 = td.FromTensor(tf.Variable(tf.random_normal([100*100])))
@@ -118,10 +119,11 @@ expr.resolve_to(expr_def)
 #sum = td.Fold(td.Function(tf.add), td.FromTensor(tf.zeros((100,))))
 #ans = train>>sum  
 
-expression_label = (td.InputTransform(ans_list.index)>>
+expression_label = (
                     td.Optional(td.Scalar('int32')) >>
-                    td.Function(td.Embedding(len(ans_list),100,name="ans_embed"))>>
-                    td.Function(lambda x: tf.reshape(x,[-1,100,1])))
+                    td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)) 
+                    #td.Function(lambda x: tf.reshape(x,[-1,100,1]))
+                   )
 
 #model = td.AllOf(expr_def, td.InputTransform(get_neg) >> td.Map(expression_label)>> td.NGrams(3) >> td.GetItem(0) >>td.Concat()>>td.Function(lambda x:tf.reshape(x,[-1,3,100,1]))) 
 model = td.AllOf(expr_def, td.InputTransform(get_neg) >> td.Map(expression_label)>> td.NGrams(101) >> td.GetItem(0)) 
