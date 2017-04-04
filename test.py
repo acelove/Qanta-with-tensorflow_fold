@@ -26,17 +26,17 @@ def del1(tree_dict):
 def del2(tree_dict):
     for key in tree_dict:
         for tree in tree_dict[key]:
-            root(tree).ans = tree.ans
+            root(tree).ans = tree.ans_ind
             root(tree).dist = tree.dist
             root(tree).qid = tree.qid
 
 def del3(tree_dict,ans_list):
     for key in tree_dict:
         for tree in tree_dict[key]:
-            root(tree).neg = ans_list[ans_list != tree.ans]
+            root(tree).neg = ans_list[ans_list != tree.ans_ind]
  
 def word(node):
-    return node.word
+    return node.ind
 
 def get_kids(node):
     return node.kids
@@ -48,39 +48,36 @@ def get_ans(node):
 
 def get_neg(node):
     neg = []
-    neg.append(vocab.index(node.ans))
+    neg.append(node.ans)
     random.shuffle(node.neg)
     neg_list = node.neg
     for i in xrange(100):
-      neg.append(vocab.index(neg_list[i]))
+      neg.append(neg_list[i])
     return neg
 
 vocab, rel_list, ans_list, tree_dict = cPickle.load(open('data/hist_split','r'))
+ans_list = [vocab.index(ans) for ans in ans_list]
 del1(tree_dict)
 del2(tree_dict)
 del3(tree_dict,array(ans_list))
-#val = tree_dict['dev']
-#node_dict = del4(tree_dict)
+
 node_dict = {}
 for key in tree_dict:
     node_dict[key] = []
     for tree in tree_dict[key]:
         node_dict[key].append(root(tree))
+
 with tf.device("/cpu:0"):
   w2v = tf.Variable(tf.random_normal([len(vocab),100,1]))
-word2vec = (td.InputTransform(vocab.index) >>
+
+
+word2vec = (
            td.Optional(td.Scalar('int32')) >>
-           td.Function(lambda x : tf.nn.embedding_lookup(w2v,x)) 
-           #td.Function(td.Embedding(len(vocab),100,name="word_embed"))>>
-           #td.Function(lambda x: tf.reshape(x,[-1,100,1]))
+           td.Function(lambda x : tf.nn.embedding_lookup(w2v,x))
            )
 
 Wv = td.FromTensor(tf.Variable(tf.random_normal([100,100])))
-Wv2 = td.FromTensor(tf.Variable(tf.random_normal([100*100])))
 
-Wr = {}
-for rel in rel_list:
-  Wr[rel] = td.FromTensor(tf.Variable(tf.random_normal([100,100])))
 
 def rela(index):
     return Wr[rel_list.index(index)]
@@ -94,11 +91,7 @@ y = td.Composition()
 with y.scope():
   vec = y.input[0]
   WR = y.input[1]
-  #WR = td.Function(lambda x: tf.reshape(x,[-1,100,100])).reads(Wv2)
-  #print WR
   out = td.Function(tf.matmul).reads(WR,vec)
-  #out = td.Function(lambda x: tf.reshape(x,[-1,100,1])).reads(vec)
-  #out = td.Identity().reads(vec)
   y.output.reads(out)
 
 Wv_mat = td.Composition()
@@ -115,23 +108,18 @@ expr_def = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat, kids_deal) >>
 expr.resolve_to(expr_def)
 
 
-#train = td.InputTransform(root) >> td.InputTransform(get_kids) >> td.Map(td.Record((td.InputTransform(word) >> word2vec, td.InputTransform(rel_list.index) >> td.InputTransform(rela)))) >> td.Map(y)
-#sum = td.Fold(td.Function(tf.add), td.FromTensor(tf.zeros((100,))))
-#ans = train>>sum  
 
 expression_label = (
                     td.Optional(td.Scalar('int32')) >>
-                    td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)) 
-                    #td.Function(lambda x: tf.reshape(x,[-1,100,1]))
+                    td.Function(lambda x: tf.nn.embedding_lookup(w2v,x))
                    )
 
-#model = td.AllOf(expr_def, td.InputTransform(get_neg) >> td.Map(expression_label)>> td.NGrams(3) >> td.GetItem(0) >>td.Concat()>>td.Function(lambda x:tf.reshape(x,[-1,3,100,1]))) 
+ 
 model = td.AllOf(expr_def, td.InputTransform(get_neg) >> td.Map(expression_label)>> td.NGrams(101) >> td.GetItem(0)) 
 compiler = td.Compiler.create(model)
 vec = compiler.output_tensors
 
 
-#cos = tf.matmul(vec[0],vecs[:,0],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vecs[:,0],axis=1,keep_dims=True))
 cos = tf.matmul(vec[0],vec[1],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[1],axis=1,keep_dims=True))
 
 loss_pos = 1 - cos
@@ -140,46 +128,33 @@ loss = loss_pos
 for i in xrange(100):
     loss = loss + tf.maximum(0.0, tf.matmul(vec[0],vec[i+2],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[i+2],axis=1,keep_dims=True)) + loss_pos)
 
-loss = tf.reduce_sum(loss)
+loss = tf.reduce_sum(loss) 
 
 train_op = tf.train.AdagradOptimizer(0.05).minimize(loss)
 saver = tf.train.Saver()
-#sess = tf.InteractiveSession()
-#sess.run(tf.global_variables_initializer())
-    
-#batch = []
-#for i in xrange(272):
-#    batch.append(root(val[i]))
-#fdict = compiler.build_feed_dict(batch)
+
 
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = 0.1
 config.gpu_options.allow_growth = True
-#config.log_device_placement=True
+
+
 allow_soft_placement=True
 sess = tf.InteractiveSession(config=config)
 sess.run(tf.global_variables_initializer())
 
-#begin = time.time()
+
 min_loss = 1000000000.0
 for _ in xrange(80):
-  #sess.run(train_op,feed_dict=fdict)
-  #print sess.run(vec,feed_dict = fdict)
   loss_sum = 0  
-  for i in xrange(0,len(tree_dict['train']),272):
-    #batch = []
-    #for j in xrange(272):
-      #batch.append(root(tree_dict['train'][i+j]))
-    batch = node_dict['train'][i:i+272]
-    #print len(batch)
-    #print batch[0]
+  for i in xrange(0,len(tree_dict['train']),210):
+    batch = node_dict['train'][i:i+210]
     fdict = compiler.build_feed_dict(batch)
     begin = time.time()
     sess.run(train_op,feed_dict=fdict)
     end = time.time()
     loss_batch = sess.run(loss,feed_dict=fdict)
     loss_sum += loss_batch
-    #print linalg.norm(sess.run(vec,feed_dict = fdict))
     print "epoch :%d ,batch_id : %d ,time cost: %.4f,loss= %.4f" %(_, i/272, end-begin,loss_batch)
   if loss_sum < min_loss:
     min_loss = loss_sum
