@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# coding=utf-8
 from numpy import *
 from util.gen_util import *
 from util.math_util import *
@@ -95,15 +93,55 @@ expr_def = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat, kids_deal) >>
 expr.resolve_to(expr_def)
 
 
-compiler = td.Compiler.create(expr_def)
+
+expression_label = (
+                    td.Optional(td.Scalar('int32')) >>
+                    td.Function(lambda x: tf.nn.embedding_lookup(w2v,x))
+                   )
+
+ 
+model = td.AllOf(expr_def, td.InputTransform(get_neg) >> td.Map(expression_label)>> td.NGrams(101) >> td.GetItem(0)) 
+compiler = td.Compiler.create(model)
 vec = compiler.output_tensors
 
-sess = tf.InteractiveSession()
-saver = tf.train.Saver()
-checkpoint = tf.train.get_checkpoint_state('tf_models')
-if checkpoint and checkpoint.model_checkpoint_path:
-    saver.restore(sess,checkpoint.model_checkpoint_path)
 
-train = sess.run(vec,feed_dict = compiler.build_feed_dict(node_dict['train']))
-test = sess.run(vec,feed_dict = compiler.build_feed_dict(node_dict['test']))
-print len(train)
+cos = tf.matmul(vec[0],vec[1],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[1],axis=1,keep_dims=True))
+
+loss_pos = 1 - cos
+loss = loss_pos
+
+for i in xrange(100):
+    loss = loss + tf.maximum(0.0, tf.matmul(vec[0],vec[i+2],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[i+2],axis=1,keep_dims=True)) + loss_pos)
+
+loss = tf.reduce_sum(loss) 
+
+train_op = tf.train.AdagradOptimizer(0.05).minimize(loss)
+saver = tf.train.Saver()
+
+
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.1
+config.gpu_options.allow_growth = True
+
+
+allow_soft_placement=True
+sess = tf.InteractiveSession(config=config)
+sess.run(tf.global_variables_initializer())
+
+
+min_loss = 1000000000.0
+for _ in xrange(80):
+  loss_sum = 0  
+  for i in xrange(0,len(tree_dict['train']),210):
+    batch = node_dict['train'][i:i+210]
+    fdict = compiler.build_feed_dict(batch)
+    begin = time.time()
+    sess.run(train_op,feed_dict=fdict)
+    end = time.time()
+    loss_batch = sess.run(loss,feed_dict=fdict)
+    loss_sum += loss_batch
+    print "epoch :%d ,batch_id : %d ,time cost: %.4f,loss= %.4f" %(_, i/272, end-begin,loss_batch)
+  if loss_sum < min_loss:
+    min_loss = loss_sum
+  print "epoch loss : %.4f , min loss = %.4f." % (loss_sum, min_loss)
+  saver.save(sess,"./tf_models/model.ckpt",global_step=_)
