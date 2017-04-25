@@ -54,3 +54,16 @@ def get_neg(node):
     for i in xrange(100):
       neg.append(neg_list[i])
     return neg
+
+def collapse_questions(train_trees, test_trees):
+    train_q = {}
+    for tree in train_trees:
+        if tree.qid not in train_q:
+            train_q[tree.qid] = {}
+        train_q[tree.qid][tree.dist] = tree
+    test_q = {}
+    for tree in test_trees:
+        if tree.qid not in test_q:
+            test_q[tree.qid] = {}
+        test_q[tree.qid][tree.dist] = tree
+    return train_q, test_q
