@@ -61,7 +61,7 @@ word2vec = (
            )
 
 Wv = td.FromTensor(tf.Variable(tf.random_normal([100,100])))
-
+b = td.FromTensor(tf.Variable(tf.random_normal([100,1])))
 
 def rela(index):
     return Wr[rel_list.index(index)]
@@ -116,7 +116,7 @@ with loss.scope():
 expr = td.ForwardDeclaration(td.PyObjectType(),td.TensorType([100,1]))
 kids_deal = ( td.InputTransform(get_kids) >> td.Map(td.Record((expr(), rel2mat)))
               >> td.Map(Wr_mat) >>td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((100,1)))) )
-pro = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat, kids_deal) >>td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((100,1)))) >>td.Function(tf.tanh) >> td.Function(lambda x:x / tf.norm(x))
+pro = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat, kids_deal) >>td.Fold(td.Function(tf.add),b) >>td.Function(tf.tanh) >> td.Function(lambda x:x / tf.norm(x))
 expr_def = td.AllOf(pro,td.InputTransform(get_ans)>>td.Optional(td.Scalar('int32')) >>td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)), td.InputTransform(get_neg) >> td.Map(expression_label)) >>loss
 expr.resolve_to(expr_def)
 
@@ -132,28 +132,31 @@ train_op = tf.train.AdagradOptimizer(0.05).minimize(loss)
 saver = tf.train.Saver()
 
 
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.1
-config.gpu_options.allow_growth = True
+#config = tf.ConfigProto()
+#config.gpu_options.per_process_gpu_memory_fraction = 0.1
+#config.gpu_options.allow_growth = True
+config = tf.ConfigProto(
+        device_count = {'GPU': 0}
+    )
 
 
-allow_soft_placement=True
+#allow_soft_placement=True
 sess = tf.InteractiveSession(config=config)
 sess.run(tf.global_variables_initializer())
 
 
 min_loss = 1000000000.0
-for _ in xrange(80):
+for _ in xrange(50):
   loss_sum = 0  
-  for i in xrange(0,len(tree_dict['train']),40):
-    batch = node_dict['train'][i:i+ 40]
+  for i in xrange(0,len(tree_dict['train']),10):
+    batch = node_dict['train'][i:i+ 10]
     fdict = compiler.build_feed_dict(batch)
     begin = time.time()
     sess.run(train_op,feed_dict=fdict)
     end = time.time()
     loss_batch = sess.run(loss,feed_dict=fdict)
     loss_sum += loss_batch
-    print "epoch :%d ,batch_id : %d ,time cost: %.4f,loss= %.4f" %(_, i/40, end-begin,loss_batch)
+    print "epoch :%d ,batch_id : %d ,time cost: %.4f,loss= %.4f" %(_, i/10, end-begin,loss_batch)
   if loss_sum < min_loss:
     min_loss = loss_sum
   print "epoch loss : %.4f , min loss = %.4f." % (loss_sum, min_loss)
