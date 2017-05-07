@@ -49,11 +49,11 @@ def get_ans(node):
 
 def get_neg(node):
     neg = []
-    random.shuffle(node.neg)
     neg_list = node.neg
     for i in xrange(100):
       neg.append(neg_list[i])
     return neg
+
 
 def collapse_questions(train_trees, test_trees):
     train_q = {}
@@ -67,3 +67,14 @@ def collapse_questions(train_trees, test_trees):
             test_q[tree.qid] = {}
         test_q[tree.qid][tree.dist] = tree
     return train_q, test_q
+
+def shuffle_neg(trees):
+    for tree in trees:
+        for node in tree.get_nodes():
+            random.shuffle(node.neg)
+
+def isLeaf(node):
+    if len(node.kids) == 0:
+      return 0.0
+    else:
+      return 1.0

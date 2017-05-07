@@ -10,16 +10,19 @@ class DT_RNN(object):
             self, embedding_size, vocab, rel_list, isTrain 
             ):
 
-
-
-
-
+        r = sqrt(6) / sqrt(201)
         #Model Definition
         with tf.device("/cpu:0"):
-          w2v = tf.Variable(tf.random_normal([len(vocab), embedding_size, 1]))
-        
-        Wv = td.FromTensor(tf.Variable(tf.random_normal([embedding_size, embedding_size])))
-        b = td.FromTensor(tf.Variable(tf.random_normal([embedding_size,1])))
+          #w2v = tf.Variable(tf.random_normal([len(vocab), embedding_size, 1]))
+          w2v = tf.Variable((random.rand(len(vocab),embedding_size,1)*2*r-r).astype(float32))
+        #Wr = tf.Variable(tf.random_normal([len(rel_list), embedding_size, embedding_size])) 
+        Wr = tf.Variable((random.rand(len(rel_list),embedding_size,embedding_size)*2*r-r).astype(float32))
+
+        r = sqrt(6) / sqrt(51)
+        #Wv = td.FromTensor(tf.Variable(tf.random_normal([embedding_size, embedding_size])))
+        Wv = tf.Variable((random.rand(embedding_size,embedding_size)*2*r-r).astype(float32))
+        #b = td.FromTensor(tf.Variable(tf.random_normal([embedding_size,1])))
+        b = tf.Variable((random.rand(embedding_size,1)*2*r-r).astype(float32))
 
         word2vec = (
            td.Optional(td.Scalar('int32')) >>
@@ -28,8 +31,16 @@ class DT_RNN(object):
 
         rel2mat = (td.InputTransform(rel_list.index) >>
            td.Optional(td.Scalar('int32') )  >>
-           td.Function(td.Embedding(len(rel_list), embedding_size*embedding_size, name="rel_Matric")) >>
-           td.Function(lambda x: tf.reshape(x,[-1, embedding_size, embedding_size])))
+           td.Function(lambda x: tf.nn.embedding_lookup(Wr,x)))
+           #td.Function(td.Embedding(len(rel_list), embedding_size*embedding_size, name="rel_Matric")) >>
+           #td.Function(lambda x: tf.reshape(x,[-1, embedding_size, embedding_size])))
+
+
+        test = td.Composition()
+        with test.scope():
+          td.Metric('test').reads(test.input)
+          test.output.reads(test.input)
+
 
         Wr_mat = td.Composition()
         with Wr_mat.scope():
@@ -41,7 +52,8 @@ class DT_RNN(object):
         Wv_mat = td.Composition()
         with Wv_mat.scope():
           vec = Wv_mat.input
-          out = td.Function(tf.matmul).reads(Wv,vec)
+          Wv2 = td.FromTensor(Wv)
+          out = td.Function(tf.matmul).reads(Wv2,vec)
           Wv_mat.output.reads(out)
 
         expression_label = (
@@ -55,13 +67,15 @@ class DT_RNN(object):
               vec0 = loss.input[0]
               vec1 = loss.input[1] 
               vec2 = loss.input[2]
+              vec3 = loss.input[3]
               loss_pos = td.Function(lambda x,y :1 - tf.matmul(x,y,transpose_a=True)).reads(vec0,vec1) 
               vec0_b = td.Broadcast().reads(vec0)
               loss_pos_b = td.Broadcast().reads(loss_pos)
+              flag_is_leaf = td.Broadcast().reads(vec3)
               loss_neg = (
-                           td.Zip() >> td.Map(td.Function(lambda neg,ans,loss_pos : tf.maximum(0.0, tf.matmul(neg,ans,transpose_a=True) + loss_pos)))
+                           td.Zip() >> td.Map(td.Function(lambda neg,ans,loss_pos ,flag : tf.maximum(0.0, (tf.matmul(neg,ans,transpose_a=True) + loss_pos) * flag )))
                             >> td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((1,1))))
-                         ).reads(vec2,vec0_b,loss_pos_b)
+                         ).reads(vec2,vec0_b,loss_pos_b,flag_is_leaf)
               td.Metric('loss').reads(loss_neg)
               loss.output.reads(vec0)
         else:
@@ -70,17 +84,20 @@ class DT_RNN(object):
               loss.output.reads(loss.input)
 
 
+
         expr = td.ForwardDeclaration(td.PyObjectType(),td.TensorType([embedding_size, 1]))
-        kids_deal = ( td.InputTransform(get_kids) >> td.Map(td.Record((expr(), rel2mat)))
+        kids_deal = ( td.InputTransform(get_kids) >> td.Map(td.Record((expr(), rel2mat)) ) 
                       >> td.Map(Wr_mat) >>td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((embedding_size, 1))))
                     )
-        pro = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat, kids_deal) >>td.Fold(td.Function(tf.add),b) >>td.Function(tf.tanh) >> td.Function(lambda x:x / tf.norm(x))
+        pro = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat , kids_deal) >>td.Fold(td.Function(tf.add),td.FromTensor(b)) >>test >>td.Function(tf.tanh) >> td.Function(lambda x:x / tf.norm(x,axis=1,keep_dims = True))
         expr_def = None
         if isTrain:
             expr_def = (
-                        td.AllOf(pro,td.InputTransform(get_ans)>>td.Optional(td.Scalar('int32'))>>td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)),
-                        td.InputTransform(get_neg) >> td.Map(expression_label))
-                        >>loss
+                        td.AllOf(pro,
+                                 td.InputTransform(get_ans)>>td.Optional(td.Scalar('int32'))>>td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)),
+                                 td.InputTransform(get_neg) >> td.Map(expression_label),
+                                 td.InputTransform(isLeaf) >> td.Optional(td.Scalar('float32'))  >>td.Function(lambda x: tf.reshape(x,[-1,1,1])))
+                                 >>loss
                        )
         else:
             expr_def = pro >> loss
@@ -89,11 +106,17 @@ class DT_RNN(object):
 
         model = expr_def
         self.compiler = td.Compiler.create(model)
-        vec_nodes = self.compiler.metric_tensors['loss']
+        self.vec_nodes = self.compiler.metric_tensors['loss']
         self.vec_h = self.compiler.output_tensors
         self.vec_word = None
         self.loss = None
+        self.w2v = w2v
+        self.Wr = Wr
+        self.Wv = Wv
+        self.b = b
+        self.test = self.compiler.metric_tensors['test']
         if isTrain:
-            self.loss = tf.reduce_sum(vec_nodes)
+            self.loss = tf.reduce_mean(vec_nodes) 
+            print 
         else:
-            self.vec_word = tf.reduce_mean(vec_nodes,0)
+            self.vec_word = tf.reduce_mean(self.vec_nodes,0)
