@@ -67,15 +67,13 @@ class DT_RNN(object):
               vec0 = loss.input[0]
               vec1 = loss.input[1] 
               vec2 = loss.input[2]
-              vec3 = loss.input[3]
               loss_pos = td.Function(lambda x,y :1 - tf.matmul(x,y,transpose_a=True)).reads(vec0,vec1) 
               vec0_b = td.Broadcast().reads(vec0)
               loss_pos_b = td.Broadcast().reads(loss_pos)
-              flag_is_leaf = td.Broadcast().reads(vec3)
               loss_neg = (
-                           td.Zip() >> td.Map(td.Function(lambda neg,ans,loss_pos ,flag : tf.maximum(0.0, (tf.matmul(neg,ans,transpose_a=True) + loss_pos) * flag )))
+                           td.Zip() >> td.Map(td.Function(lambda neg,ans,loss_pos  : tf.maximum(0.0, tf.matmul(neg,ans,transpose_a=True) + loss_pos )))
                             >> td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((1,1))))
-                         ).reads(vec2,vec0_b,loss_pos_b,flag_is_leaf)
+                         ).reads(vec2,vec0_b,loss_pos_b)
               td.Metric('loss').reads(loss_neg)
               loss.output.reads(vec0)
         else:
@@ -95,8 +93,7 @@ class DT_RNN(object):
             expr_def = (
                         td.AllOf(pro,
                                  td.InputTransform(get_ans)>>td.Optional(td.Scalar('int32'))>>td.Function(lambda x: tf.nn.embedding_lookup(w2v,x)),
-                                 td.InputTransform(get_neg) >> td.Map(expression_label),
-                                 td.InputTransform(isLeaf) >> td.Optional(td.Scalar('float32'))  >>td.Function(lambda x: tf.reshape(x,[-1,1,1])))
+                                 td.InputTransform(get_neg) >> td.Map(expression_label))
                                  >>loss
                        )
         else:
@@ -116,7 +113,7 @@ class DT_RNN(object):
         self.b = b
         self.test = self.compiler.metric_tensors['test']
         if isTrain:
-            self.loss = tf.reduce_mean(vec_nodes) 
+            self.loss = tf.reduce_mean(self.vec_nodes) 
             print 
         else:
             self.vec_word = tf.reduce_mean(self.vec_nodes,0)

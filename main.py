@@ -65,9 +65,11 @@ def evaluate(rnn, saver, node_dict):
       saver.restore(sess, checkpoint.model_checkpoint_path)
       print "Successfully load model:", checkpoint.model_checkpoint_path
 
-    lens = len(node_dict['train'])
-    train_nodes = node_dict['train'][0:int(0.8*lens-2)]
-    test_nodes = node_dict['train'][int(0.8*lens-2):lens]
+    #lens = len(node_dict['train'])
+    #train_nodes = node_dict['train'][0:int(0.8*lens-2)]
+    #test_nodes = node_dict['train'][int(0.8*lens-2):lens]
+    train_nodes = node_dict['train']
+    test_nodes = node_dict['test'] + node_dict['dev']
     train_q, test_q = collapse_questions(train_nodes, test_nodes)
 
     train_feats = []
