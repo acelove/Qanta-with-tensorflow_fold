@@ -49,6 +49,7 @@ def get_ans(node):
 
 def get_neg(node):
     neg = []
+    neg.append(node.ans)
     neg_list = node.neg
     for i in xrange(100):
       neg.append(neg_list[i])
