@@ -5,6 +5,7 @@ from util.math_util import *
 from util.dtree_util import *
 import numpy as np
 import cPickle
+from nltk.corpus import stopwords
 
 def load_data(data_path):
     vocab, rel_list, ans_list, tree_dict = cPickle.load(open(data_path,'r'))
@@ -74,8 +75,9 @@ def shuffle_neg(trees):
         for node in tree.get_nodes():
             random.shuffle(node.neg)
 
-def isLeaf(node):
-    if len(node.kids) == 0:
+def isStop(node):
+    stop = stopwords.words('english')
+    if node.word in stop:
       return 0.0
     else:
       return 1.0

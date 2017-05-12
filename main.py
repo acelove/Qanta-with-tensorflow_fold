@@ -19,7 +19,7 @@ tf.flags.DEFINE_integer("embedding_dim",100,"Dimensionality of word embedding(de
 
 
 #Program parameters
-tf.flags.DEFINE_integer("batch_size",271,"The size of a batch(default:271)")
+tf.flags.DEFINE_integer("batch_size",11,"The size of a batch(default:11)")
 tf.flags.DEFINE_integer("num_epochs",50,"Number of training epoch(default:50)")
 tf.flags.DEFINE_string("save_path",'./tf_models/',"The path to save the models.")
 tf.flags.DEFINE_string("data",'./data/hist_split',"The data to train.")
@@ -33,18 +33,7 @@ sess = tf.InteractiveSession(config=config)
 
 #train
 def train(rnn, saver, node_dict,tree_dict):
-    vec = rnn.vec_h
-    cos = tf.matmul(vec[0],vec[1],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[1],axis=1,keep_dims=True))
-
-    loss_pos = 1 - cos
-    loss = loss_pos
-
-    for i in xrange(100):
-        loss = loss + tf.maximum(0.0, tf.matmul(vec[0],vec[i+2],transpose_a=True) / (tf.norm(vec[0],axis=1,keep_dims=True) * tf.norm(vec[i+2],axis=1,keep_dims=True)) + loss_pos)
-
-    loss = tf.reduce_sum(loss) 
-
-    train_op = tf.train.AdagradOptimizer(0.05).minimize(loss)
+    train_op = tf.train.AdagradOptimizer(0.05).minimize(rnn.loss)
     sess.run(tf.global_variables_initializer())
 
     if not os.path.exists(FLAGS.save_path):
@@ -61,7 +50,7 @@ def train(rnn, saver, node_dict,tree_dict):
         begin = time.time()
         sess.run(train_op,feed_dict=fdict)
         end = time.time()
-        loss_batch = sess.run(loss,feed_dict=fdict)
+        loss_batch = sess.run(rnn.loss,feed_dict=fdict)
         loss_sum += loss_batch
         print "epoch :%d ,batch_id : %d ,time cost: %.4f,loss= %.4f" %(_, i/FLAGS.batch_size, end-begin,loss_batch)
       print "epoch loss : %.4f , min loss = %.4f." % (loss_sum, min_loss)
