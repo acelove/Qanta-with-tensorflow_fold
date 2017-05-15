@@ -23,6 +23,7 @@ tf.flags.DEFINE_integer("batch_size",11,"The size of a batch(default:11)")
 tf.flags.DEFINE_integer("num_epochs",50,"Number of training epoch(default:50)")
 tf.flags.DEFINE_string("save_path",'./tf_models/',"The path to save the models.")
 tf.flags.DEFINE_string("data",'./data/hist_split',"The data to train.")
+tf.flags.DEFINE_string("We",'./data/hist_We',"Vectors of words.")
 tf.flags.DEFINE_boolean("isTrain",True,"Is it training(default:True)")
 tf.flags.DEFINE_string("model_path",'./tf_models/',"The path to load the model.")
 FLAGS = tf.app.flags.FLAGS
@@ -33,6 +34,7 @@ sess = tf.InteractiveSession(config=config)
 
 #train
 def train(rnn, saver, node_dict,tree_dict):
+
     train_op = tf.train.AdagradOptimizer(0.05).minimize(rnn.loss)
     sess.run(tf.global_variables_initializer())
 
@@ -79,8 +81,8 @@ def evaluate(rnn, saver, node_dict):
       count = 1
       for qid in split:
         q = split[qid]
-        curr_ave = zeros ( (100, 1))
-        curr_words = zeros ( (100, 1))
+        curr_ave = zeros ( (FLAGS.embedding_dim, 1))
+        curr_words = zeros ( (FLAGS.embedding_dim, 1))
         for i in range(0, len(q)):
           tree = q[i]
           tmp = []
@@ -88,9 +90,9 @@ def evaluate(rnn, saver, node_dict):
           fdict = rnn.compiler.build_feed_dict(tmp[0:1])
           h = sess.run(rnn.vec_h,feed_dict=fdict)
           words = sess.run(rnn.vec_word,feed_dict=fdict)
-          curr_ave += array(h).reshape(100,1)
+          curr_ave += array(h).reshape(FLAGS.embedding_dim,1)
           curr_ave = curr_ave / linalg.norm(curr_ave)
-          curr_words += array(words).reshape(100,1)
+          curr_words += array(words).reshape(FLAGS.embedding_dim,1)
           curr_words = curr_words / linalg.norm(curr_words)
         featvec = concatenate([curr_ave.flatten(), curr_words.flatten()])
         curr_feats = {}
@@ -107,8 +109,8 @@ def evaluate(rnn, saver, node_dict):
         count += 1
     print 'total training instances:', len(train_feats)
     print 'total testing instances:', len(test_feats)
-    import cPickle 
-    cPickle.dump((train_feats,test_feats),open('tmp_file','w'))
+    #import cPickle 
+    #cPickle.dump((train_feats,test_feats),open('tmp_file','w'))
    
     classifier = SklearnClassifier(LinearSVC(C=10))
     classifier.train(train_feats)
@@ -122,7 +124,7 @@ def main(_):
   vocab, rel_list, ans_list, tree_dict = load_data(FLAGS.data)
   node_dict = preprocess(tree_dict, array(ans_list), FLAGS.isTrain)
   print "Load data finish..."
-  rnn = DT_RNN(FLAGS.embedding_dim, vocab, rel_list, FLAGS.isTrain)
+  rnn = DT_RNN(FLAGS.embedding_dim, vocab, rel_list, FLAGS.isTrain, FLAGS.We)
   saver = tf.train.Saver()
   if FLAGS.isTrain:
       train(rnn, saver, node_dict, tree_dict)

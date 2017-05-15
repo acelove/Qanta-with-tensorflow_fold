@@ -5,22 +5,24 @@ import tensorflow_fold.public.blocks as td
 import numpy as np
 from utils import *
 import cPickle
+import os
 
 class DT_RNN(object):
-    def __init__(
-            self, embedding_size, vocab, rel_list, isTrain 
-            ):
+    def __init__( self, embedding_size, vocab, rel_list, isTrain, We_dir="./We"):
 
-        r = sqrt(6) / sqrt(201)
         #Model Definition
+        r = sqrt(6) / sqrt(201)
         with tf.device("/cpu:0"):
-          #w2v = tf.Variable(tf.random_normal([len(vocab), embedding_size, 1]))
-          #w2v = tf.Variable((random.rand(len(vocab),embedding_size,1)*2*r-r).astype(float32))
-          We = cPickle.load(open('data/hist_We','r'))
-          W2V = random.rand(len(vocab), embedding_size,1)
-          for i in xrange(len(vocab)):
-            W2V[i] = We[:,i].reshape(embedding_size,1)
-          w2v = tf.Variable(W2V.astype(float32))
+          if os.path.exists(We_dir):
+            We = cPickle.load(open(We_dir,'r'))
+            W2V = random.rand(len(vocab), embedding_size,1)
+            for i in xrange(len(vocab)):
+              W2V[i] = We[:,i].reshape(embedding_size,1)
+            w2v = tf.Variable(W2V.astype(float32))
+          else:
+            #w2v = tf.Variable(tf.random_normal([len(vocab), embedding_size, 1]))
+            w2v = tf.Variable((random.rand(len(vocab),embedding_size,1)*2*r-r).astype(float32))
+
         #Wr = tf.Variable(tf.random_normal([len(rel_list), embedding_size, embedding_size])) 
         Wr = tf.Variable((random.rand(len(rel_list),embedding_size,embedding_size)*2*r-r).astype(float32))
 
@@ -40,12 +42,6 @@ class DT_RNN(object):
            td.Function(lambda x: tf.nn.embedding_lookup(Wr,x)))
            #td.Function(td.Embedding(len(rel_list), embedding_size*embedding_size, name="rel_Matric")) >>
            #td.Function(lambda x: tf.reshape(x,[-1, embedding_size, embedding_size])))
-
-
-        test = td.Composition()
-        with test.scope():
-          td.Metric('test').reads(test.input)
-          test.output.reads(test.input)
 
 
         Wr_mat = td.Composition()
@@ -93,10 +89,16 @@ class DT_RNN(object):
 
 
         expr = td.ForwardDeclaration(td.PyObjectType(),td.TensorType([embedding_size, 1]))
-        kids_deal = ( td.InputTransform(get_kids) >> td.Map(td.Record((expr(), rel2mat)) ) 
+        kids_deal = ( 
+                      td.InputTransform(get_kids) >> td.Map(td.Record((expr(), rel2mat)) ) 
                       >> td.Map(Wr_mat) >>td.Fold(td.Function(tf.add),td.FromTensor(tf.zeros((embedding_size, 1))))
                     )
-        pro = td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat , kids_deal) >>td.Fold(td.Function(tf.add),td.FromTensor(b)) >>test >>td.Function(tf.tanh) >> td.Function(lambda x:x / tf.norm(x,axis=1,keep_dims = True))
+        pro = (
+                 td.AllOf(td.InputTransform(word) >> word2vec >> Wv_mat , kids_deal) >>
+                 td.Fold(td.Function(tf.add),td.FromTensor(b)) >>
+                 td.Function(tf.tanh) >> 
+                 td.Function(lambda x:x / tf.norm(x,axis=1,keep_dims = True))
+              )
         expr_def = None
         if isTrain:
             expr_def = (
@@ -116,11 +118,6 @@ class DT_RNN(object):
         self.vec_h = self.compiler.output_tensors
         self.vec_word = None
         self.loss = None
-        self.w2v = w2v
-        self.Wr = Wr
-        self.Wv = Wv
-        self.b = b
-        self.test = self.compiler.metric_tensors['test']
         if isTrain:
             self.loss = tf.reduce_mean(self.vec_nodes) 
             print 

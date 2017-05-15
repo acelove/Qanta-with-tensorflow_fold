@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding=utf-8
-from util.gen_util import *
 from util.math_util import *
 from util.dtree_util import *
 import numpy as np
